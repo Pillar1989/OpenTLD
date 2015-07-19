@@ -10,14 +10,15 @@
 #include <QDebug>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
-
+#include <algorithm>
+#include <iterator>
+#include<dirent.h>
 using namespace cv;
 using namespace std;
 
 
 TLD::TLD()
 {
-
 }
 TLD::TLD(const FileNode& file){
     read(file);
@@ -79,7 +80,10 @@ void TLD::init(const Mat& frame1,const Rect& box,FILE* bb_file){
     bad_boxes.reserve(grid.size());
 
     //TLD中定义：cv::Mat pEx;  //positive NN example 大小为15*15图像片
-    pEx.create(patch_size,patch_size,CV_64F);
+    //
+    pEx = vector<Mat>(1,Mat(patch_size,patch_size,CV_64F));
+    //pEx[0].create(patch_size,patch_size,CV_64F);
+
     //Init Generator
     generator = PatchGenerator (0,0,noise_init,true,1-scale_init,1+scale_init,-angle_init*CV_PI/180,angle_init*CV_PI/180,-angle_init*CV_PI/180,angle_init*CV_PI/180);
     //此函数根据传入的box（目标边界框），在整帧图像中的全部窗口中寻找与该box距离最小（即最相似，
@@ -152,26 +156,50 @@ void TLD::init(const Mat& frame1,const Rect& box,FILE* bb_file){
         ferns_data[idx[a]] = nX[i];
         a++;
     }
-    //把正专家和负专家放到一起
-    //Data already have been shuffled, just putting it in the same vector
-#ifndef AUTO
-    vector<cv::Mat> nn_data(nEx.size()+1);
-    nn_data[0] = pEx;
-    pEx_num = 1;
-    for (int i=0;i<nEx.size();i++){
-        nn_data[i+1]= nEx[i];
-    }
-#else
 
+#ifdef AUTO
+    int count;
+    char name[64];
+    FileStorage fs("D:\\opencv_project\\OpenTLD\\data\\PN_data.yml", FileStorage::READ);
+    fs["pExtotal"] >> count;
+    pEx_num = count;
+    for(int i = 0;i < count;i++)
+    {
+         Mat img;
+        sprintf(name,"pEx%d",i);
+        fs[name] >> img;
+        pEx.push_back(img);
+    }
+    fs["nExtotal"] >> count;
+    for(int i = 0;i < count;i++)
+    {
+         Mat img;
+        sprintf(name,"nEx%d",i);
+        fs[name] >> img;
+        nEx.push_back(img);
+    }
 #endif
+     //把正专家和负专家放到一起
+     //Data already have been shuffled, just putting it in the same vector
+     vector<cv::Mat> nn_data(pEx.size());
+     nn_data = pEx;
+ //    nn_data[0] = pEx;
+ //    for (int i=0;i<nEx.size();i++){
+ //        nn_data[i+1]= nEx[i];
+ //    }
+     copy(nEx.begin(),nEx.end(),back_inserter(nn_data));
     ///Training
     //训练 集合分类器（森林） 和 最近邻分类器
     classifier.trainF(ferns_data,2); //bootstrap = 2，训练正负样本
-    classifier.trainNN(nn_data);//训练正负专家
+    classifier.trainNN(nn_data,pEx_num);//训练正负专家
+#ifdef AUTO
+    classifier.addNN(nn_data,pEx_num);//添加正负专家数据
+#endif
     ///Threshold Evaluation on testing sets
     ///用样本在上面得到的 集合分类器（森林） 和 最近邻分类器 中分类，评价得到最好的阈值
     classifier.evaluateTh(nXT,nExT);//评估
     cout << "init end ............" << endl;
+    classifier.show();
 }
 
 /* Generate Positive data
@@ -186,9 +214,14 @@ void TLD::init(const Mat& frame1,const Rect& box,FILE* bb_file){
 void TLD::generatePositiveData(const Mat& frame, int num_warps){
     Scalar mean;//均值
     Scalar stdev;//标准差
+    cv::Mat pEx_tmp(patch_size,patch_size,CV_64F);
 
     //此函数将frame图像best_box区域的图像片归一化为均值为0的15*15大小的patch，存在pEx正样本中
-    getPattern(frame(best_box),pEx,mean,stdev);
+    getPattern(frame(best_box),pEx_tmp,mean,stdev);
+    swap(pEx_tmp,pEx[0]);
+    //pEx.push_back(pEx_tmp);
+    pEx_num = 1;
+
     //Get Fern features on warped patches
     Mat img;
     Mat warped;
@@ -313,7 +346,6 @@ void TLD::processFrame(const cv::Mat& img1,const cv::Mat& img2,vector<Point2f>& 
     else{
         tracked = false;
     }
-    cout <<" processFrame ......" << endl;
     ///Detect
     detect(img2);
 
@@ -335,7 +367,7 @@ void TLD::processFrame(const cv::Mat& img1,const cv::Mat& img2,vector<Point2f>& 
           }
         imshow("detections",img);
 #endif
-            printf("Found %d clusters\n",(int)cbb.size());
+            //printf("Found %d clusters\n",(int)cbb.size());
             for (int i=0;i<cbb.size();i++){
                  //找到与跟踪器跟踪到的box距离比较远的类（检测器检测到的box），而且它的相关相似度比跟踪器的要大
                 if (bbOverlap(tbb,cbb[i])<0.5 && cconf[i]>tconf){  //  Get index of a clusters that is far from tracker and are more confident than the tracker
@@ -377,25 +409,25 @@ void TLD::processFrame(const cv::Mat& img1,const cv::Mat& img2,vector<Point2f>& 
                     //printf("Weighting %d close detection(s) with tracker..\n",close_detections);
                 }
                 else{
-                    printf("%d close detections were found\n",close_detections);
+                    //printf("%d close detections were found\n",close_detections);
 
                 }
             }
         }
     }
     else{                                       //   If NOT tracking
-        printf("Not tracking..\n");
+       // printf("Not tracking..\n");
         lastboxfound = false;
         lastvalid = false;
         //如果跟踪器没有跟踪到目标，但是检测器检测到了一些可能的目标box，那么同样对其进行聚类，但只是简单的
         //将聚类的cbb[0]作为新的跟踪目标box（不比较相似度了？？还是里面已经排好序了？？），重新初始化跟踪器
         if(detected){                           //  and detector is defined
             clusterConf(dbb,dconf,cbb,cconf);   //  cluster detections
-            printf("Found %d clusters\n",(int)cbb.size());
+           // printf("Found %d clusters\n",(int)cbb.size());
             if (cconf.size()==1){
                 bbnext=cbb[0];
                 lastconf=cconf[0];
-                printf("Confident detection..reinitializing tracker\n");
+                //printf("Confident detection..reinitializing tracker\n");
                 lastboxfound = true;
 
             }
@@ -528,7 +560,7 @@ void TLD::bbPredict(const vector<cv::Point2f>& points1,const vector<cv::Point2f>
     //如果没有s1,s1出现的图形就是2
     float s1 = 0.5*(s-1)*bb1.width;// top-left 坐标的偏移(s1,s2)
     float s2 = 0.5*(s-1)*bb1.height;
-    printf("s= %f s1= %f s2= %f ....................... \n",s,s1,s2);
+    //printf("s= %f s1= %f s2= %f ....................... \n",s,s1,s2);
     //得到当前bounding box的位置与大小信息
     //当前box的x坐标 = 前一帧box的x坐标 + 全部特征点位移的中值（可理解为box移动近似的位移） - 当前box宽的一半
     bb2.x = round( bb1.x + dx -s1);
@@ -536,7 +568,7 @@ void TLD::bbPredict(const vector<cv::Point2f>& points1,const vector<cv::Point2f>
 
     bb2.width = round(bb1.width*s);
     bb2.height = round(bb1.height*s);
-    printf("predicted bb: %d %d %d %d\n",bb2.x,bb2.y,bb2.br().x,bb2.br().y);
+   // printf("predicted bb: %d %d %d %d\n",bb2.x,bb2.y,bb2.br().x,bb2.br().y);
 }
 
 void TLD::detect(const cv::Mat& frame){
@@ -575,8 +607,8 @@ void TLD::detect(const cv::Mat& frame){
             tmp.conf[i]=0.0;
     }
     int detections = dt.bb.size();
-    printf("%d Bounding boxes passed the variance filter\n",a);
-    cout << "Initial detection from Fern Classifier:" << detections << endl;
+    //printf("%d Bounding boxes passed the variance filter\n",a);
+    //cout << "Initial detection from Fern Classifier:" << detections << endl;
     //如果通过以上两个检测模块的扫描窗口数大于100个，则只取后验概率大的前100个
     if (detections>100){ //CComparator(tmp.conf)指定比较方式？？？
         nth_element(dt.bb.begin(),dt.bb.begin()+100,dt.bb.end(),CComparator(tmp.conf));
@@ -593,10 +625,10 @@ void TLD::detect(const cv::Mat& frame){
         detected=false;
         return;
     }
-    printf("Fern detector made %d detections ",detections);
+    //printf("Fern detector made %d detections ",detections);
      //两次使用getTickCount()，然后再除以getTickFrequency()，计算出来的是以秒s为单位的时间（opencv 2.0 以前是ms）
     t=(double)getTickCount()-t;
-    printf("in %gms\n", t*1000/getTickFrequency());
+   // printf("in %gms\n", t*1000/getTickFrequency());
     //  Initialize detection structure
     dt.patt = vector<vector<int> >(detections,vector<int>(10,0));        //  Corresponding codes of the Ensemble Classifier
     dt.conf1 = vector<float>(detections);                                //  Relative Similarity (for final nearest neighbour classifier)
@@ -615,17 +647,19 @@ void TLD::detect(const cv::Mat& frame){
         classifier.NNConf(dt.patch[i],dt.isin[i],dt.conf1[i],dt.conf2[i]);  //  Evaluate nearest neighbour classifier
         dt.patt[i]=tmp.patt[idx];
         //printf("Testing feature %d, conf:%f isin:(%d|%d|%d)\n",i,dt.conf1[i],dt.isin[i][0],dt.isin[i][1],dt.isin[i][2]);
-         //相关相似度大于阈值，则认为含有前景目标
+
+        //相关相似度大于阈值，则认为含有前景目标
         if (dt.conf1[i]>nn_th){                                               //  idx = dt.conf1 > tld.model.thr_nn; % get all indexes that made it through the nearest neighbour
             dbb.push_back(grid[idx]);                                         //  BB    = dt.bb(:,idx); % bounding boxes
             dconf.push_back(dt.conf2[i]);                                     //  Conf  = dt.conf2(:,idx); % conservative confidences
+            cout << "conf:  " << dt.conf1[i] << endl;
         }
     }                                                                         //  end
       //打印检测到的可能存在目标的扫描窗口数（可以通过三个级联检测器的）
     if (dbb.size()>0){
-        printf("Found %d NN matches\n",(int)dbb.size());
+       // printf("Found %d NN matches\n",(int)dbb.size());
         detected=true;
-#if 0
+#if 1
         for (int i=0;i<dbb.size();i++){
               drawBox(img,dbb[i]);
           }
@@ -659,12 +693,12 @@ void TLD::learn(const Mat& img){
     //计算输入图像片（跟踪器的目标box）与在线模型之间的相关相似度conf
     classifier.NNConf(pattern,isin,conf,dummy);
     if (conf<0.5) { //如果相似度太小了，就不训练
-        printf("Fast change..not training\n");
+        //printf("Fast change..not training\n");
         lastvalid =false;
         return;
     }
     if (pow(stdev.val[0],2)<var){//如果方差太小了，也不训练
-        printf("Low variance..not training\n");
+        //printf("Low variance..not training\n");
         lastvalid=false;
         return;
     }
@@ -704,16 +738,21 @@ void TLD::learn(const Mat& img){
     }
     //最近邻分类器
     vector<Mat> nn_examples;
-    nn_examples.reserve(dt.bb.size()+1);
-    nn_examples.push_back(pEx);
+    vector<Mat> tmp_nn_examples;
+    nn_examples.reserve(pEx.size());
+    nn_examples = pEx;
+    tmp_nn_examples.reserve(dt.bb.size());
+    //nn_examples.push_back(pEx);
     for (int i=0;i<dt.bb.size();i++){
         idx = dt.bb[i];
         if (bbOverlap(lastbox,grid[idx]) < bad_overlap)
-            nn_examples.push_back(dt.patch[i]);
+            tmp_nn_examples.push_back(dt.patch[i]);
     }
+    //把负样本都放到正样本的后面
+    copy(tmp_nn_examples.begin(),tmp_nn_examples.end(),back_inserter(nn_examples));
     /// Classifiers update  分类器训练
     classifier.trainF(fern_examples,2);
-    classifier.trainNN(nn_examples);
+    classifier.trainNN(nn_examples,pEx.size());
     //把正样本库（在线模型）包含的所有正样本显示在窗口上
     classifier.show();
 #ifndef AUTO

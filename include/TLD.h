@@ -7,7 +7,7 @@
 
 using namespace  cv;
 
-//#define AUTO
+#define AUTO
 //Bounding Boxes
 struct BoundingBox : public cv::Rect {
     BoundingBox(){}
@@ -82,7 +82,7 @@ private:
     //Training data
     std::vector<std::pair<std::vector<int>,int> > pX; //positive ferns <features,labels=1>
     std::vector<std::pair<std::vector<int>,int> > nX; // negative ferns <features,labels=0>
-    cv::Mat pEx;  //positive NN example
+    std::vector<cv::Mat>  pEx;  //positive NN example
     std::vector<cv::Mat> nEx; //negative NN examples
     //Test data
     std::vector<std::pair<std::vector<int>,int> > nXT; //negative data to Test
@@ -104,6 +104,7 @@ private:
     std::vector<bool> dvalid;
     std::vector<float> dconf;
     bool detected;
+    int pEx_num;
 
 
     //Bounding Boxes

@@ -188,6 +188,7 @@ GETBOUNDINGBOX:
     FILE  *bb_file = fopen("bounding_boxes.txt","w");
     //TLD initialization
 #ifndef AUTO
+
     tld.init(last_gray,box,bb_file);
 #else
     tld.init(first,box,bb_file);
@@ -235,7 +236,7 @@ REPEAT:
         pts1.clear();
         pts2.clear();
         frames++;
-        printf("Detection rate: %d/%d\n",detections,frames);
+       // printf("Detection rate: %d/%d\n",detections,frames);
         if (cvWaitKey(33) == 'q')
             break;
     }

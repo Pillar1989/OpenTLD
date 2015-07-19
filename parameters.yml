@@ -7,7 +7,7 @@ Parameters:
    num_trees: 10
    num_features: 13
    thr_fern: 0.6
-   thr_nn: 0.65
+   thr_nn: 0.6
    thr_nn_valid: 0.7
    num_closest_init: 10
    num_warps_init: 20

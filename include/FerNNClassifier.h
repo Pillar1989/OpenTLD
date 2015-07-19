@@ -27,6 +27,7 @@ public:
     float measure_forest(std::vector<int> fern);
     void trainF(const std::vector<std::pair<std::vector<int>,int> >& ferns,int resample);
     void trainNN(const std::vector<cv::Mat>& nn_examples,int pEx_num);
+    void addNN(const std::vector<cv::Mat>& nn_examples,int pEx_num);
     void NNConf(const cv::Mat& example,std::vector<int>& isin,float& rsconf,float& csconf);
     void evaluateTh(const std::vector<std::pair<std::vector<int>,int> >& nXT,const std::vector<cv::Mat>& nExT);
     void show();

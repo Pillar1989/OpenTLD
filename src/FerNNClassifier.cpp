@@ -8,6 +8,7 @@
 #include "include/FerNNClassifier.h"
 #include <algorithm>
 #include <iterator>
+#include<dirent.h>
 using namespace cv;
 using namespace std;
 
@@ -140,6 +141,17 @@ void FerNNClassifier::trainF(const vector<std::pair<vector<int>,int> >& ferns,in
     }
     //}
 }
+void FerNNClassifier::addNN(const vector<cv::Mat>& nn_examples,int pEx_num){
+    for(int i = 0; i < pEx_num ;i++)
+    {
+        pEx.push_back(nn_examples[i]);
+    }
+    for(int i = pEx_num; i <nn_examples.size() ;i++)
+    {
+        nEx.push_back(nn_examples[i]);
+    }
+}
+
 //训练最近邻分类器
 void FerNNClassifier::trainNN(const vector<cv::Mat>& nn_examples,int pEx_num){
     float conf,dummy;
@@ -207,6 +219,7 @@ void FerNNClassifier::NNConf(const Mat& example, vector<int>& isin,float& rsconf
     //比较图像片p到在线模型M的距离（相似度），计算正样本最近邻相似度，也就是将输入的图像片与
     //在线模型中所有的图像片进行匹配，找出最相似的那个图像片，也就是相似度的最大值
     for (int i=0;i<pEx.size();i++){
+
         matchTemplate(pEx[i],example,ncc,CV_TM_CCORR_NORMED);      // measure NCC to positive examples
         nccP=(((float*)ncc.data)[0]+1)*0.5; //计算匹配相似度
         if (nccP>ncc_thesame)
@@ -280,55 +293,24 @@ void FerNNClassifier::storeNP(bool isStart)
 {
     char ExName[1024];
     int i = 0;
-    DIR *dir;
-    struct dirent *dirpent;
-    int store_P_num = 0;
-    int store_N_num = 0;
 
-    if (isStart == true)
+    FileStorage fs("D:\\opencv_project\\OpenTLD\\data\\PN_data.yml", FileStorage::WRITE);
+
+    for (i = 0; i < pEx.size(); i++)
     {
-        for (i = 0; i < pEx.size(); i++)
-        {
-            sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\P\\%d.jpg",i);
-            imwrite(ExName,pEx[i]);
-        }
-        for (i = 0; i < nEx.size(); i++)
-        {
-            sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\N\\%d.jpg",i);
-            imwrite(ExName,nEx[i]);
-        }
-     }
-    else
-    {
-        sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\P\\");
-        dir = opendir(ExName);
-        while(dirpent=readdir(dir))
-        {
-            char *b=dirpent->d_name;
-              if(b[0]!='.')
-                 store_P_num++;
-        }
-        closedir(dir);
-
-        sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\N\\");
-        dir = opendir(ExName);
-        while(dirpent=readdir(dir))
-        {
-            char *b=dirpent->d_name;
-              if(b[0]!='.')
-                 store_N_num++;
-        }
-        closedir(dir);
-
-        for (i = store_P_num; i < pEx.size(); i++)
-        {
-            sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\P\\%d.jpg",i);
-            imwrite(ExName,pEx[i]);
-        }
-        for (i = store_N_num; i < nEx.size(); i++)
-        {
-            sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\N\\%d.jpg",i);
-            imwrite(ExName,nEx[i]);
-        }
+        //sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\P\\%d.jpg",i);
+        //imwrite(ExName,pEx[i]);
+        sprintf(ExName,"pEx%d",i);
+        fs << ExName << pEx[i];
     }
+    fs << "pExtotal" << i;
+    for (i = 0; i < nEx.size(); i++)
+    {
+        sprintf(ExName,"nEx%d",i);
+        fs << ExName << nEx[i];
+        //sprintf(ExName,"D:\\opencv_project\\OpenTLD\\data\\N\\%d.jpg",i);
+        //imwrite(ExName,nEx[i]);
+    }
+    fs << "nExtotal" << i;
+    fs.release();
 }
