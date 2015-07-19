@@ -17,7 +17,6 @@ using namespace std;
 
 TLD::TLD()
 {
-
 }
 TLD::TLD(const FileNode& file){
     read(file);
@@ -157,7 +156,6 @@ void TLD::init(const Mat& frame1,const Rect& box,FILE* bb_file){
 #ifndef AUTO
     vector<cv::Mat> nn_data(nEx.size()+1);
     nn_data[0] = pEx;
-    pEx_num = 1;
     for (int i=0;i<nEx.size();i++){
         nn_data[i+1]= nEx[i];
     }
@@ -704,8 +702,8 @@ void TLD::learn(const Mat& img){
     }
     //最近邻分类器
     vector<Mat> nn_examples;
-    nn_examples.reserve(dt.bb.size()+1);
-    nn_examples.push_back(pEx);
+    nn_examples.reserve(dt.bb.size());
+    //nn_examples.push_back(pEx);
     for (int i=0;i<dt.bb.size();i++){
         idx = dt.bb[i];
         if (bbOverlap(lastbox,grid[idx]) < bad_overlap)
@@ -713,7 +711,7 @@ void TLD::learn(const Mat& img){
     }
     /// Classifiers update  分类器训练
     classifier.trainF(fern_examples,2);
-    classifier.trainNN(nn_examples);
+    classifier.trainNN(nn_examples,pEx.size());
     //把正样本库（在线模型）包含的所有正样本显示在窗口上
     classifier.show();
 #ifndef AUTO
